@@ -1,0 +1,104 @@
+---
+output: pdf_document
+header-includes:
+-   \usepackage{graphicx}
+-   \usepackage{fancyhdr}
+-   \usepackage{amsmath}
+-   \usepackage{amssymb}
+-   \usepackage{amsthm}
+-   \usepackage{thmtools}
+-   \usepackage{framed}
+-   \theoremstyle{definition}
+-   \newtheorem{question}{Question}
+-   \newtheorem{example}{Example}
+-   \declaretheoremstyle[headfont=\color{black}\normalfont\bfseries]{boxedsolution}
+-   \theoremstyle{boxedsolution}
+-   \newtheorem*{solution}{Solution}
+-   \newenvironment{boxsol}
+    {\begin{framed}
+    \begin{solution}
+    }
+    {
+    \end{solution}    
+    \end{framed}}
+-   \pagestyle{fancy}
+-   \fancyhf{}
+-   \lhead{STA2101 - Final Project}
+-   \rhead{Nigel Petersen}
+-   \def\R{\mathbb{R}}
+-   \def\Ex{\mathbb{E}}
+-   \def\P{\mathbb{P}}
+-   \def\V{\mathbb{V}}
+-   \def\N{\mathbb{N}}
+-   \def\and{\quad \text{and} \quad}
+-   \DeclareMathOperator{\rank}{rank}
+-   \DeclareMathOperator{\tr}{tr}
+-   \renewcommand{\epsilon}{\varepsilon}
+-   \def\and{\quad \text{and} \quad}
+-   \def\vs{\vspace{5mm}}
+-   \newcommand{\D}[1]{\hspace{0.5mm} \mathrm{d}#1}
+---
+
+```{r setup, include=FALSE}
+library(reticulate)
+library(faraway)
+library(MASS)
+library(readr)
+library(SMPracticals)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE)
+```
+
+```{r}
+library(readr)
+url = 'https://raw.githubusercontent.com/NigelPetersen/STA2101_data/main/cars.csv'
+cars_data <- read.csv(url)
+attach(cars_data)
+```
+
+We first check for any missing entries in the data
+
+```{r}
+# Checking for missing data
+missing_data <- numeric(length(names(cars_data)))
+for(i in 1:length(names(cars_data))){
+  missing_data[i] = sum(is.na(cars_data[i]))
+}
+
+missing_data = matrix(missing_data, ncol=1)
+
+colnames(missing_data) <- c("Missing entries")
+rownames(missing_data) <- c(names(cars_data))
+missing_data_table <- as.table(missing_data)
+missing_data_table
+```
+
+From the table of missing data, the `engine_capacity` variable has 10 missing entries, which will be removed from the overall data. Further analyzing the data, some of the missing entries in the continuous variables may have been coded as 0s. Checking the summary stats
+```{r}
+summary(cars_data)
+```
+
+The minimum of the response, `price_usd` is $\$1$, which is strange, further investigation shows that 
+```{r}
+length(cars_data$price_usd[cars_data$price_usd < 100])
+```
+
+There are `r length(cars_data$price_usd[cars_data$price_usd < 100])` listings with a price of less than $\$100$, a listing price which is abnormally low. These extreme outliers will need to be dealt with during the analysis. The minimum of the `duration_listed` and `odometer_value` variables being 0 was initially concerning, but `duration_listed` is measured in days, so there is nothing abnormal there, and if `odometer_value` = 0, then the car is brand new, so there is no immediate concern with either of these. Lastly, the 10 binary `feature` variables may need to be grouped into one factor, where the levels are the number of present features.
+
+
+Moving on to some preliminary plots; Typically, age and odometer value have a direct influence on the value (or decrease in value) of a used car
+
+```{r}
+par(mfrow=c(1,2))
+plot(cars_data$odometer_value, cars_data$price_usd, xlab = "Odometer value", 
+     ylab = "Price (usd)", main="Odometer value vs Price")
+plot(cars_data$year_produced, cars_data$price_usd, xlab = "Year produced", 
+     ylab = "Price (usd)", main="Year produced vs Price")
+```
+
+These relationships seems to be reflected in the plots, so `odometer_value` and `year_produced` will likely be significant features in the model.
+
+
+
+

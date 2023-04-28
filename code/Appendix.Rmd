@@ -1,0 +1,275 @@
+---
+output: pdf_document
+header-includes:
+-   \usepackage{graphicx}
+-   \usepackage{fancyhdr}
+-   \usepackage{amsmath}
+-   \usepackage{amssymb}
+-   \usepackage{amsthm}
+-   \usepackage{thmtools}
+-   \usepackage{framed}
+-   \theoremstyle{definition}
+-   \newtheorem{question}{Question}
+-   \newtheorem{example}{Example}
+-   \declaretheoremstyle[headfont=\color{black}\normalfont\bfseries]{boxedsolution}
+-   \theoremstyle{boxedsolution}
+-   \newtheorem*{solution}{Solution}
+-   \newenvironment{boxsol}
+    {\begin{framed}
+    \begin{solution}
+    }
+    {
+    \end{solution}    
+    \end{framed}}
+-   \pagestyle{fancy}
+-   \fancyhf{}
+-   \lhead{STA2101 - Methods of Applied Statistics I}
+-   \rhead{Final Project}
+-   \def\R{\mathbb{R}}
+-   \def\Ex{\mathbb{E}}
+-   \def\P{\mathbb{P}}
+-   \def\V{\mathbb{V}}
+-   \def\N{\mathbb{N}}
+-   \def\tt{\texttt}
+-   \def\and{\quad \text{and} \quad}
+-   \DeclareMathOperator{\rank}{rank}
+-   \DeclareMathOperator{\tr}{tr}
+-   \renewcommand{\epsilon}{\varepsilon}
+-   \def\and{\quad \text{and} \quad}
+-   \def\vs{\vspace{5mm}}
+-   \newcommand{\D}[1]{\hspace{0.5mm} \mathrm{d}#1}
+---
+
+```{r setup, include=FALSE}
+library(reticulate)
+library(faraway)
+library(MASS)
+library(SMPracticals)
+library(readr)
+library(dplyr)
+library(ggplot2)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE)
+```
+
+
+\section{Appendix}
+
+\subsection{Data Cleaning and Preprocessing}
+
+The raw data sourced directly from Kaggle contained observations with names that were not in English, and were not supported in that character set used in \tt{R}, so they were removed from the raw csv file. Upon doing so, the data was loaded into \tt{R}, and a check for missing data was conducted
+
+```{r}
+url = 'https://raw.githubusercontent.com/NigelPetersen/STA2101_data/main/cleaned_cars.csv'
+raw_data <- read.csv(url)
+options(scipen=999)
+
+# Data cleaning and preprocessing
+
+missing_data <- numeric(length(names(raw_data)))
+for(i in 1:length(names(raw_data))){
+  missing_data[i] = sum(is.na(raw_data[i]))
+}
+
+missing_data <- matrix(missing_data, ncol=1)
+
+colnames(missing_data) <- c("Missing entries")
+rownames(missing_data) <- c(names(raw_data))
+missing_data_table <- as.table(missing_data)
+
+# drop observations with missing entries
+
+cars_data <- na.omit(raw_data)
+```
+
+
+After doing so, the \tt{location-region} and \tt{model-name} variables were dropped as they contain names that are not in English
+
+```{r}
+cars_data <- subset(cars_data, select = -c(location_region))
+cars_data <- subset(cars_data, select = -c(model_name))
+```
+
+Furthermore, the \tt{engine-fuel} and \tt{engine-type} variables were too similar, so \tt{engine-type} was dropped, and the levels within the \tt{engine-fuel} variable were changed to \tt{gasoline}, \tt{diesel} and \tt{Other}, as the levels \tt{hybrid-diesel} and \tt{hybrid-petrol} made up a very small proportion of the total observations
+
+```{r}
+cars_data <- subset(cars_data, select = -c(engine_type))
+
+cars_data[cars_data == "gas"] <- "gasoline"
+cars_data[cars_data == "hybrid-diesel"]  <- "Other"
+cars_data[cars_data == "hybrid-petrol"] <- "Other"
+```
+
+The 10 binary variables \tt{feature-i} for $i=0,\dots, 9$ were not explicitly specified when the data was sourced, namely what particular feature each variable was accounting for was not clear, so they were converted to a single factor called \tt{additional-features} which counts the number of additional features present in a listing.
+
+```{r}
+features <- names(cars_data)[17:26]
+
+features_df <- cars_data[features]
+features_df[features_df == "True"] <- 1
+features_df[features_df == "False"] <- 0
+count_features <- numeric(nrow(cars_data))
+for(i in 1:nrow(cars_data)){
+  count_features[i] = sum(as.numeric(features_df[i,]))
+}
+
+cars_data$additional_features <- as.character(count_features)
+
+cars_data <- cars_data[!colnames(cars_data) %in% features]
+```
+
+Lastly, upon observing the summary statistics for the response \tt{price-usd}, the minimum value observed value was $\$1$, which was quite strange, so all entries with a listing value of under $\$100$ were removed, forming the working dataset.
+
+```{r}
+cars_data <- subset(cars_data, price_usd >= 100)
+attach(cars_data)
+```
+
+
+\subsection{Additional Plots}
+
+The \tt{body-type} and \tt{engine-capacity} variables also seemed rather significant in predicting the response 
+
+```{r}
+ggplot(as.data.frame(table(body_type)),
+       aes(x=body_type, y=Freq))+
+  geom_bar(stat="identity", fill="blue")+
+  theme(axis.text.x = element_text(angle = 90))+
+  labs(x="Body Types", y="Frequency", 
+       title="Frequency of Body Types")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(cars_data, aes(x=body_type, y=price_usd))+
+  geom_boxplot(fill='blue') +
+  theme(axis.text.x = element_text(angle = 90))+
+  labs(x="Body Type", y="Price", title="Body Type vs. Price")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot(engine_capacity, price_usd, 
+     xlab="Engine Capacity (litres)", ylab = "Price (USD)", 
+     main="Engine Capacity vs. Price")
+```
+
+
+
+\subsection{Model Selection}
+
+```{r}
+set.seed(666)
+
+indices = sample(c(T,F), nrow(cars_data), replace = T, prob = c(0.7,0.3))
+training_data <- cars_data[indices,]
+remaining <- cars_data[!indices,]
+y_test = remaining[,"price_usd"]
+X_test = subset(remaining, select = -c(price_usd))
+
+# use log(price) as the response 
+
+full_model = lm(log(price_usd) ~., data=training_data)
+reduced_model = step(full_model, trace=0)
+anova(full_model, reduced_model)
+
+####### MODEL WITH INTERACTION EFFECTS INCLUDED ###########
+
+interaction_model = lm(log(price_usd) ~. -odometer_value - year_produced - 
+      duration_listed - additional_features + (odometer_value + year_produced +
+      duration_listed + additional_features)^2, data=training_data )
+
+reduced_interaction_model = step(interaction_model, trace=0)
+anova(interaction_model, reduced_interaction_model)
+anova(interaction_model, full_model)
+anova(interaction_model, reduced_model)
+anova(reduced_interaction_model, full_model)
+anova(reduced_interaction_model, reduced_model)
+
+# compute predicted values of reduced model from backwards selection
+
+full_predictions = exp(predict.lm(full_model, X_test))
+reduced_predictions = exp(predict.lm(reduced_model, X_test))
+interaction_predictions = exp(predict.lm(interaction_model, X_test))
+reduced_interaction_predictions = exp(predict.lm(reduced_interaction_model,
+                                                   X_test))
+full_RMSE = sqrt(mean((full_predictions - y_test)^2))
+reduced_RMSE = sqrt(mean((reduced_predictions - y_test)^2))
+interaction_RMSE = sqrt(mean((interaction_predictions - y_test))^2)
+reduced_interaction_RMSE = sqrt(mean((reduced_interaction_predictions - y_test))^2)
+
+Models = c("Full Model", "Reduced Model", "Interactions Model", 
+          "Reduced Interactions Model")
+
+R2 = c(summary(full_model)$r.squared, summary(reduced_model)$r.squared, 
+       summary(interaction_model)$r.squared, 
+       summary(reduced_interaction_model)$r.squared) 
+RMSE = c(full_RMSE, reduced_RMSE, interaction_RMSE,
+                        reduced_interaction_RMSE)
+
+metrics_df = data.frame(Models, R2, RMSE)
+metrics_df
+```
+
+The diagnostic plots of the final model were roughly similar to those of the preliminary model, with approximate independence of the observations, and more than likely non-normally distributed
+
+```{r}
+# diagnostic plots for the final model 
+par(mfrow=c(2,2))
+plot(interaction_model)
+```
+
+\subsection{Inference}
+
+Here we examine how changes in the variables \tt{additional-features}, \tt{odometer-value} and \tt{year_produced} effect the true response \tt{price-usd}. 
+
+```{r}
+# change in price from change in additional features
+
+means = numeric(length(unique(additional_features)))
+for(i in 1:length(means)){
+  means[i] = mean(exp(predict.lm(interaction_model, subset(X_test, 
+                    additional_features==i))))
+}
+
+unit_diffs = numeric(length(means)-1)
+for(i in 1:length(unit_diffs)){
+  unit_diffs[i] = means[i+1]-means[i]
+}
+mean(unit_diffs)
+
+# change in price from change in odometer
+
+nrow(subset(X_test, odometer_value > 400000))/nrow(X_test)
+
+odom_means = numeric(8)
+for(i in 1:8){
+  odom_means[i]= mean(exp(predict.lm(interaction_model, subset(X_test, 
+      odometer_value >= 50000*(i-1) & odometer_value < 50000*i ))))
+}
+
+odom_diff = numeric(7)
+for(i in 1:7){
+  odom_diff[i] = odom_means[i+1]-odom_means[i]
+}
+mean(odom_diff)
+
+# change in price from change in year_produced
+
+nrow(subset(X_test, year_produced >= 1980))/nrow(X_test)
+
+year_means = numeric(8)
+for(i in 1:8){
+  year_means[i] = mean(exp(predict.lm(interaction_model, subset(X_test, 
+    year_produced >= 1980 + 5*(i-1) & year_produced < 1980 + 5*i ))))
+}
+year_diff = numeric(7)
+for(i in 1:7){
+  year_diff[i] = year_means[i+1] - year_means[i]
+}
+mean(year_means)
+```
+
+\section{References}
+
+K. Lepchenkov. \textit{Used-cars-catalog}. Retrieved from \\  \tt{https://www.kaggle.com/datasets/lepchenkov/usedcarscatalog}, 2019 \vspace{3mm} \\ \noindent J. Faraway.  \textit{Linear Models with R}. Chapman and Hall, 2005 \vspace{3mm} \\ 
+\noindent Reid. N (a). \textit{Week 2 Lecture Slides}. Retrieved from \\ \tt{https://utstat.toronto.edu/reid/sta2101f/sep21.pdf}, 2022 \vspace{3mm} \\
+\noindent Reid. N (b).  \textit{Week 3 Lecture Slides}. Retrieved from \\ \tt{https://utstat.toronto.edu/reid/sta2101f/sep28.pdf}, 2022
+
